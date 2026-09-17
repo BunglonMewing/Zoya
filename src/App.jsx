@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { Menu, Download, Zap, MoreVertical } from 'lucide-react';
+import { Menu, MoreVertical } from 'lucide-react';
 import Sidebar from './components/Sidebar.jsx';
 import Message from './components/Message.jsx';
 import InputArea from './components/InputArea.jsx';
@@ -12,6 +12,19 @@ import {
   setArtifact, toggleSidebar, store,
 } from './store.js';
 import { sendMessage, scrapeMedia, isValidUrl, detectPlatform } from './api.js';
+
+const PLATFORM_LABEL = {
+  youtube:    'YouTube',
+  instagram:  'Instagram',
+  tiktok:     'TikTok',
+  twitter:    'Twitter / X',
+  facebook:   'Facebook',
+  soundcloud: 'SoundCloud',
+  spotify:    'Spotify',
+  threads:    'Threads',
+  pinterest:  'Pinterest',
+  default:    'Media',
+};
 
 const SUGGESTIONS = [
   { icon: '🌐', text: 'Jelaskan cara kerja internet' },
@@ -38,24 +51,21 @@ export default function App() {
     return chat?.title || 'Zoya AI';
   })();
 
-  // Scroll to bottom on new message
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [activeMessages.length, loading]);
 
-  // Ensure active chat
   const ensureChat = () => {
     if (!activeChat) return createChat();
     return activeChat;
   };
 
-  // Send AI message
+  // ─── Kirim pesan AI ──────────────────────────────────────────────────────
   const handleSend = async (text) => {
     const chatId = ensureChat();
     const { sessionId, memories: mems } = store.getState();
 
     addMessage(chatId, { role: 'user', content: text });
-
     const loadMsgId = addMessage(chatId, { role: 'assistant', content: '', loading: true });
     setLoading(true);
 
@@ -63,9 +73,9 @@ export default function App() {
       const result = await sendMessage(text, sessionId, mems);
       updateMessage(chatId, loadMsgId, { content: result.answer, loading: false });
 
-      // Auto-detect if user wants to download and trigger
-      const lowerText = text.toLowerCase();
+      // Auto-trigger download jika ada URL di pesan
       const urlMatch = text.match(/https?:\/\/[^\s]+/);
+      const lowerText = text.toLowerCase();
       if (urlMatch && (lowerText.includes('download') || lowerText.includes('unduh') || lowerText.includes('ambil'))) {
         setTimeout(() => handleDownload(urlMatch[0]), 800);
       }
@@ -80,7 +90,7 @@ export default function App() {
     }
   };
 
-  // Handle download
+  // ─── Download media ───────────────────────────────────────────────────────
   const handleDownload = async (url) => {
     if (!isValidUrl(url)) {
       toast.error('URL tidak valid');
@@ -89,36 +99,31 @@ export default function App() {
 
     const chatId = ensureChat();
     const platform = detectPlatform(url);
+    const platformName = PLATFORM_LABEL[platform] || PLATFORM_LABEL.default;
 
     addMessage(chatId, { role: 'user', content: `Download dari: ${url}` });
-
-    const loadMsgId = addMessage(chatId, {
-      role: 'assistant',
-      content: '',
-      loading: true,
-    });
-
+    const loadMsgId = addMessage(chatId, { role: 'assistant', content: '', loading: true });
     setLoading(true);
 
     try {
-      toast.info('Mengambil info media...');
+      toast.info(`Mengambil info media dari ${platformName}...`);
       const data = await scrapeMedia(url);
 
       updateMessage(chatId, loadMsgId, {
-        content: `Media dari **${data.platform || platform}** berhasil diambil!\n\n**${data.title || 'Media'}**\n\nLihat panel artefak untuk download.`,
+        content: `Berhasil mengambil media dari **${platformName}**!\n\n**${data.title || 'Media'}**${data.uploader ? `\noleh *${data.uploader}*` : ''}\n\nPilih format dan klik Download di panel sebelah kanan.`,
         loading: false,
       });
 
       setArtifact({
         type: 'download',
-        title: data.title || 'Download Media',
+        title: data.title || `Download dari ${platformName}`,
         data: { ...data, originalUrl: url },
       });
 
       toast.success('Info media berhasil diambil!');
     } catch (err) {
       updateMessage(chatId, loadMsgId, {
-        content: `Gagal mengambil media dari URL tersebut.\n\n**Error:** ${err.message}\n\nCoba URL dari YouTube, TikTok, Instagram, Twitter, dll.`,
+        content: `Gagal mengambil media.\n\n**Error:** ${err.message}\n\nPastikan URL valid dan berasal dari platform yang didukung (YouTube, TikTok, Instagram, Twitter, Facebook, dll).`,
         loading: false,
       });
       toast.error(err.message);
@@ -128,8 +133,8 @@ export default function App() {
   };
 
   const handleSuggestion = (text) => {
-    if (text.toLowerCase().includes('youtube') || text.toLowerCase().includes('download')) {
-      handleDownload('https://www.youtube.com/watch?v=dQw4w9WgXcQ');
+    if (text.toLowerCase().includes('download')) {
+      handleSend(text);
     } else {
       handleSend(text);
     }
@@ -137,10 +142,8 @@ export default function App() {
 
   return (
     <div className="app">
-      {/* Sidebar */}
       <Sidebar onMemoryOpen={() => setMemoryOpen(true)} />
 
-      {/* Main */}
       <div className="main">
         {/* Topbar */}
         <div className="topbar">
@@ -161,13 +164,12 @@ export default function App() {
 
         {/* Chat area */}
         <div className="chat-area">
-          {/* Empty state */}
           {activeMessages.length === 0 && (
             <div className="empty-state">
               <div className="empty-logo">Z</div>
               <div className="empty-title">Halo! Aku Zoya AI</div>
               <div className="empty-subtitle">
-                Aku bisa menjawab pertanyaan, membantu pekerjaan, dan juga download video/audio dari berbagai platform.
+                Aku bisa menjawab pertanyaan, membantu pekerjaan, dan download video/audio dari YouTube, TikTok, Instagram, Twitter, dan banyak lagi.
               </div>
               <div className="suggestion-chips">
                 {SUGGESTIONS.map((s, i) => (
@@ -184,17 +186,17 @@ export default function App() {
             </div>
           )}
 
-          {/* Messages */}
           {activeMessages.map((msg, i) => (
             <Message
               key={msg.id}
               message={msg}
-              onRetry={!msg.loading && msg.role === 'assistant' && i === activeMessages.length - 1
-                ? () => {
-                    const userMsg = activeMessages[i - 1];
-                    if (userMsg) handleSend(userMsg.content);
-                  }
-                : null
+              onRetry={
+                !msg.loading && msg.role === 'assistant' && i === activeMessages.length - 1
+                  ? () => {
+                      const userMsg = activeMessages[i - 1];
+                      if (userMsg) handleSend(userMsg.content);
+                    }
+                  : null
               }
             />
           ))}
@@ -222,9 +224,9 @@ export default function App() {
       <div className="toast-container">
         {toasts.map(t => (
           <div key={t.id} className={`toast ${t.type}`}>
-            {t.type === 'success' && '✓'}
-            {t.type === 'error' && '✕'}
-            {t.type === 'info' && 'ℹ'}
+            {t.type === 'success' && '✓ '}
+            {t.type === 'error'   && '✕ '}
+            {t.type === 'info'    && 'ℹ '}
             {t.message}
           </div>
         ))}
