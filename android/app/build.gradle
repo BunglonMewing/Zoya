@@ -52,3 +52,21 @@ try {
 } catch(Exception e) {
     logger.info("google-services.json not found, google-services plugin not applied. Push Notifications won't work")
 }
+
+android {
+    signingConfigs {
+        release {
+            storeFile file("../../zoya-release.keystore")
+            storePassword "password_kamu"
+            keyAlias "zoya"
+            keyPassword "password_kamu"
+        }
+    }
+    buildTypes {
+        release {
+            signingConfig signingConfigs.release
+            minifyEnabled false
+            proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
+        }
+    }
+}
