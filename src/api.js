@@ -1,5 +1,5 @@
 const AI_ENDPOINT = 'https://zoyanz-api.vercel.app/ai/claude';
-const DL_ENDPOINT = 'https://zoyanz-api.vercel.app/api/download';
+const DL_ENDPOINT = 'https://zoya-dl.vercel.app/download';
 
 // ─── AI Chat ─────────────────────────────────────────────────────────────────
 
