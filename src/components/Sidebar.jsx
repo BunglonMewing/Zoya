@@ -1,13 +1,15 @@
-import { Plus, MessageSquare, Trash2, Brain, Download, Moon, Sun, X } from 'lucide-react';
+import { Plus, MessageSquare, Trash2, Brain, Moon, Sun, X, Info, LogOut } from 'lucide-react';
 import { useStore } from '../hooks/useStore.js';
+import { useAuth } from '../contexts/AuthContext.jsx';
 import {
   createChat, setActiveChat, deleteChat,
-  toggleTheme, toggleSidebar, store
+  toggleTheme, toggleSidebar,
 } from '../store.js';
 
-export default function Sidebar({ onMemoryOpen }) {
+export default function Sidebar({ onMemoryOpen, onAboutOpen }) {
   const state = useStore();
   const { chats, activeChat, theme, sidebarOpen } = state;
+  const { user, logout } = useAuth();
 
   const handleNew = () => {
     createChat();
@@ -21,7 +23,6 @@ export default function Sidebar({ onMemoryOpen }) {
 
   return (
     <>
-      {/* Overlay for mobile */}
       {sidebarOpen && window.innerWidth <= 768 && (
         <div className="sidebar-overlay" onClick={toggleSidebar} />
       )}
@@ -37,6 +38,20 @@ export default function Sidebar({ onMemoryOpen }) {
             <X size={18} />
           </button>
         </div>
+
+        {/* User info */}
+        {user && (
+          <div className="sidebar-user">
+            {user.photoURL
+              ? <img src={user.photoURL} alt="avatar" className="sidebar-user-avatar" />
+              : <div className="sidebar-user-avatar sidebar-user-initial">{user.displayName?.[0] || 'U'}</div>
+            }
+            <div className="sidebar-user-info">
+              <div className="sidebar-user-name">{user.displayName || 'Pengguna'}</div>
+              <div className="sidebar-user-email">{user.email}</div>
+            </div>
+          </div>
+        )}
 
         {/* New chat */}
         <button className="new-chat-btn" onClick={handleNew}>
@@ -77,10 +92,20 @@ export default function Sidebar({ onMemoryOpen }) {
             <Brain size={16} />
             Memori AI
           </button>
+          <button className="sidebar-action" onClick={onAboutOpen}>
+            <Info size={16} />
+            Tentang Zoya
+          </button>
           <button className="sidebar-action" onClick={toggleTheme}>
             {theme === 'dark' ? <Sun size={16} /> : <Moon size={16} />}
             {theme === 'dark' ? 'Mode Terang' : 'Mode Gelap'}
           </button>
+          {user && (
+            <button className="sidebar-action sidebar-action-danger" onClick={logout}>
+              <LogOut size={16} />
+              Keluar
+            </button>
+          )}
         </div>
       </div>
     </>

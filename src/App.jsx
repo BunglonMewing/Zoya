@@ -5,26 +5,17 @@ import Message from './components/Message.jsx';
 import InputArea from './components/InputArea.jsx';
 import ArtifactPanel from './components/ArtifactPanel.jsx';
 import MemoryModal from './components/MemoryModal.jsx';
+import AboutPage from './components/AboutPage.jsx';
+import LoginPage from './components/LoginPage.jsx';
 import { useStore } from './hooks/useStore.js';
 import { useToast } from './hooks/useToast.js';
+import { useAuth } from './contexts/AuthContext.jsx';
 import {
   createChat, addMessage, updateMessage,
-  setArtifact, toggleSidebar, store,
+  setArtifact, toggleSidebar, store, addMemory,
 } from './store.js';
 import { sendMessage, scrapeMedia, isValidUrl, detectPlatform } from './api.js';
-
-const PLATFORM_LABEL = {
-  youtube:    'YouTube',
-  instagram:  'Instagram',
-  tiktok:     'TikTok',
-  twitter:    'Twitter / X',
-  facebook:   'Facebook',
-  soundcloud: 'SoundCloud',
-  spotify:    'Spotify',
-  threads:    'Threads',
-  pinterest:  'Pinterest',
-  default:    'Media',
-};
+import { extractAutoMemory } from './lib/firestoreHelpers.js';
 
 const SUGGESTIONS = [
   { icon: '🌐', text: 'Jelaskan cara kerja internet' },
@@ -35,11 +26,22 @@ const SUGGESTIONS = [
 
 export default function App() {
   const state = useStore();
-  const { chats, activeChat, memories, artifactOpen, artifact, sidebarOpen } = state;
+  const { chats, activeChat, memories, artifactOpen, artifact } = state;
   const { toasts, toast } = useToast();
+  const { user } = useAuth();
   const [loading, setLoading] = useState(false);
   const [memoryOpen, setMemoryOpen] = useState(false);
+  const [aboutOpen, setAboutOpen] = useState(false);
   const chatEndRef = useRef(null);
+
+  // Connect / disconnect Firebase saat user berubah
+  useEffect(() => {
+    if (user) {
+      store.connectUser(user.uid);
+    } else if (user === null) {
+      store.disconnectUser();
+    }
+  }, [user]);
 
   const activeMessages = (() => {
     const chat = chats.find(c => c.id === activeChat);
@@ -60,7 +62,22 @@ export default function App() {
     return activeChat;
   };
 
-  // ─── Kirim pesan AI ──────────────────────────────────────────────────────
+  // Auto-memory: cek pesan user, simpan fakta penting
+  const tryAutoMemory = (userMessage) => {
+    const facts = extractAutoMemory(userMessage);
+    facts.forEach(fact => {
+      // Jangan duplikat — cek apakah sudah ada memori yang mirip
+      const exists = store.getState().memories.some(m =>
+        m.text.toLowerCase().includes(fact.split(':')[0].toLowerCase())
+      );
+      if (!exists) {
+        addMemory(fact);
+        toast.info(`Memori tersimpan: "${fact}"`);
+      }
+    });
+  };
+
+  // Send AI message
   const handleSend = async (text) => {
     const chatId = ensureChat();
     const { sessionId, memories: mems } = store.getState();
@@ -69,13 +86,15 @@ export default function App() {
     const loadMsgId = addMessage(chatId, { role: 'assistant', content: '', loading: true });
     setLoading(true);
 
+    // Auto-memory dari pesan user
+    tryAutoMemory(text);
+
     try {
       const result = await sendMessage(text, sessionId, mems);
       updateMessage(chatId, loadMsgId, { content: result.answer, loading: false });
 
-      // Auto-trigger download jika ada URL di pesan
-      const urlMatch = text.match(/https?:\/\/[^\s]+/);
       const lowerText = text.toLowerCase();
+      const urlMatch = text.match(/https?:\/\/[^\s]+/);
       if (urlMatch && (lowerText.includes('download') || lowerText.includes('unduh') || lowerText.includes('ambil'))) {
         setTimeout(() => handleDownload(urlMatch[0]), 800);
       }
@@ -90,7 +109,7 @@ export default function App() {
     }
   };
 
-  // ─── Download media ───────────────────────────────────────────────────────
+  // Handle download
   const handleDownload = async (url) => {
     if (!isValidUrl(url)) {
       toast.error('URL tidak valid');
@@ -99,31 +118,30 @@ export default function App() {
 
     const chatId = ensureChat();
     const platform = detectPlatform(url);
-    const platformName = PLATFORM_LABEL[platform] || PLATFORM_LABEL.default;
 
     addMessage(chatId, { role: 'user', content: `Download dari: ${url}` });
     const loadMsgId = addMessage(chatId, { role: 'assistant', content: '', loading: true });
     setLoading(true);
 
     try {
-      toast.info(`Mengambil info media dari ${platformName}...`);
+      toast.info('Mengambil info media...');
       const data = await scrapeMedia(url);
 
       updateMessage(chatId, loadMsgId, {
-        content: `Berhasil mengambil media dari **${platformName}**!\n\n**${data.title || 'Media'}**${data.uploader ? `\noleh *${data.uploader}*` : ''}\n\nPilih format dan klik Download di panel sebelah kanan.`,
+        content: `Media dari **${data.platform || platform}** berhasil diambil!\n\n**${data.title || 'Media'}**\n\nLihat panel artefak untuk download.`,
         loading: false,
       });
 
       setArtifact({
         type: 'download',
-        title: data.title || `Download dari ${platformName}`,
+        title: data.title || 'Download Media',
         data: { ...data, originalUrl: url },
       });
 
       toast.success('Info media berhasil diambil!');
     } catch (err) {
       updateMessage(chatId, loadMsgId, {
-        content: `Gagal mengambil media.\n\n**Error:** ${err.message}\n\nPastikan URL valid dan berasal dari platform yang didukung (YouTube, TikTok, Instagram, Twitter, Facebook, dll).`,
+        content: `Gagal mengambil media dari URL tersebut.\n\n**Error:** ${err.message}\n\nCoba URL dari YouTube, TikTok, Instagram, Twitter, dll.`,
         loading: false,
       });
       toast.error(err.message);
@@ -133,16 +151,38 @@ export default function App() {
   };
 
   const handleSuggestion = (text) => {
-    if (text.toLowerCase().includes('download')) {
-      handleSend(text);
+    if (text.toLowerCase().includes('youtube') || text.toLowerCase().includes('download')) {
+      handleDownload('https://www.youtube.com/watch?v=dQw4w9WgXcQ');
     } else {
       handleSend(text);
     }
   };
 
+  // Loading auth
+  if (user === undefined) {
+    return (
+      <div style={{
+        height: '100vh', display: 'flex', alignItems: 'center',
+        justifyContent: 'center', background: 'var(--bg-secondary)',
+      }}>
+        <div className="typing-indicator">
+          <div className="typing-dot" />
+          <div className="typing-dot" />
+          <div className="typing-dot" />
+        </div>
+      </div>
+    );
+  }
+
+  // Belum login
+  if (!user) return <LoginPage />;
+
   return (
     <div className="app">
-      <Sidebar onMemoryOpen={() => setMemoryOpen(true)} />
+      <Sidebar
+        onMemoryOpen={() => setMemoryOpen(true)}
+        onAboutOpen={() => setAboutOpen(true)}
+      />
 
       <div className="main">
         {/* Topbar */}
@@ -152,11 +192,7 @@ export default function App() {
           </button>
           <div className="topbar-title">{activeTitle}</div>
           {activeMessages.length > 0 && (
-            <button
-              className="icon-btn"
-              onClick={() => toast.info('Fitur ekspor segera hadir!')}
-              title="Opsi lainnya"
-            >
+            <button className="icon-btn" onClick={() => toast.info('Fitur ekspor segera hadir!')} title="Opsi lainnya">
               <MoreVertical size={20} />
             </button>
           )}
@@ -169,15 +205,11 @@ export default function App() {
               <div className="empty-logo">Z</div>
               <div className="empty-title">Halo! Aku Zoya AI</div>
               <div className="empty-subtitle">
-                Aku bisa menjawab pertanyaan, membantu pekerjaan, dan download video/audio dari YouTube, TikTok, Instagram, Twitter, dan banyak lagi.
+                Aku bisa menjawab pertanyaan, membantu pekerjaan, dan juga download video/audio dari berbagai platform.
               </div>
               <div className="suggestion-chips">
                 {SUGGESTIONS.map((s, i) => (
-                  <button
-                    key={i}
-                    className="suggestion-chip"
-                    onClick={() => handleSuggestion(s.text)}
-                  >
+                  <button key={i} className="suggestion-chip" onClick={() => handleSuggestion(s.text)}>
                     <span style={{ marginRight: 6 }}>{s.icon}</span>
                     {s.text}
                   </button>
@@ -190,20 +222,18 @@ export default function App() {
             <Message
               key={msg.id}
               message={msg}
-              onRetry={
-                !msg.loading && msg.role === 'assistant' && i === activeMessages.length - 1
-                  ? () => {
-                      const userMsg = activeMessages[i - 1];
-                      if (userMsg) handleSend(userMsg.content);
-                    }
-                  : null
+              onRetry={!msg.loading && msg.role === 'assistant' && i === activeMessages.length - 1
+                ? () => {
+                    const userMsg = activeMessages[i - 1];
+                    if (userMsg) handleSend(userMsg.content);
+                  }
+                : null
               }
             />
           ))}
           <div ref={chatEndRef} />
         </div>
 
-        {/* Input */}
         <InputArea
           onSend={handleSend}
           onDownload={handleDownload}
@@ -212,21 +242,19 @@ export default function App() {
         />
       </div>
 
-      {/* Artifact panel */}
       {artifactOpen && artifact && (
         <ArtifactPanel artifact={artifact} toast={toast} />
       )}
 
-      {/* Memory modal */}
       {memoryOpen && <MemoryModal onClose={() => setMemoryOpen(false)} />}
+      {aboutOpen && <AboutPage onClose={() => setAboutOpen(false)} />}
 
-      {/* Toasts */}
       <div className="toast-container">
         {toasts.map(t => (
           <div key={t.id} className={`toast ${t.type}`}>
-            {t.type === 'success' && '✓ '}
-            {t.type === 'error'   && '✕ '}
-            {t.type === 'info'    && 'ℹ '}
+            {t.type === 'success' && '✓'}
+            {t.type === 'error' && '✕'}
+            {t.type === 'info' && 'ℹ'}
             {t.message}
           </div>
         ))}
