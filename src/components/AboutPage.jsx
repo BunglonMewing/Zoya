@@ -1,4 +1,4 @@
-import { X, Github, Globe, Heart, Code2, Shield, Zap } from 'lucide-react';
+import { X, ExternalLink, Heart, Code2, Shield, Zap } from 'lucide-react';
 
 const STACK = [
   { label: 'React 19 + Vite', desc: 'UI framework & build tool' },
@@ -56,7 +56,7 @@ export default function AboutPage({ onClose }) {
                 className="about-link-btn"
                 title="GitHub"
               >
-                <Github size={15} />
+                <ExternalLink size={15} />
               </a>
             </div>
           </section>
