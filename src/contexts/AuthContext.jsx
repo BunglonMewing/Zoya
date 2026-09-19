@@ -80,20 +80,8 @@ export function AuthProvider({ children }) {
 
   // ─── Native login (Android/iOS via Capacitor) ───────────────────────────────
   const loginNative = async () => {
-    try {
-      // Dynamic import supaya tidak error di web kalau plugin tidak ada
-      const { GoogleAuth } = await import('@codetrix-studio/capacitor-google-auth');
-      const { GoogleAuthProvider, signInWithCredential } = await import('firebase/auth');
-
-      const googleUser = await GoogleAuth.signIn();
-
-      if (!googleUser?.authentication?.idToken) {
-        throw new Error('Tidak mendapat token dari Google.');
-      }
-
-      const credential = GoogleAuthProvider.credential(
-        googleUser.authentication.idToken
-      );
+  await signInWithRedirect(auth, googleProvider);
+};
 
       await signInWithCredential(auth, credential);
     } catch (err) {
