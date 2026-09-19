@@ -6,49 +6,72 @@ import {
   getRedirectResult,
   signOut,
 } from 'firebase/auth';
-import { Capacitor } from '@capacitor/core';
 import { auth, googleProvider } from '../lib/firebase.js';
 
 const AuthContext = createContext(null);
+
+// Deteksi apakah berjalan di dalam WebView Capacitor / Android
+const isCapacitor = () =>
+  typeof window !== 'undefined' &&
+  (window.Capacitor?.isNativePlatform?.() ||
+    window.location.protocol === 'capacitor:' ||
+    window.location.hostname === 'localhost' && navigator.userAgent.includes('wv'));
 
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(undefined);
   const [authError, setAuthError] = useState(null);
   const [authLoading, setAuthLoading] = useState(false);
 
-  const isNative = Capacitor.isNativePlatform();
-
   useEffect(() => {
-    const unsub = onAuthStateChanged(auth, (u) => {
+    const unsub = onAuthStateChanged(auth, u => {
       setUser(u || null);
     });
-
     return unsub;
   }, []);
 
   useEffect(() => {
-    if (isNative) return;
-
+    // Tangkap hasil redirect login
     getRedirectResult(auth)
-      .then((result) => {
-        if (result?.user) setUser(result.user);
+      .then(result => {
+        if (result?.user) {
+          setUser(result.user);
+          setAuthError(null);
+        }
       })
-      .catch((err) => {
-        if (err?.code !== 'auth/no-auth-event') {
-          setAuthError('Login gagal setelah redirect. Coba lagi.');
+      .catch(err => {
+        if (
+          err.code !== 'auth/no-auth-event' &&
+          err.code !== 'auth/null-user'
+        ) {
+          console.error('Redirect result error:', err.code);
         }
       });
-  }, [isNative]);
+  }, []);
 
   const loginWithGoogle = async () => {
     setAuthError(null);
     setAuthLoading(true);
 
     try {
-      if (isNative) {
-        await loginNative();
+      if (isCapacitor()) {
+        // Di Android WebView — langsung pakai redirect
+        await signInWithRedirect(auth, googleProvider);
+        // Halaman akan reload, hasil ditangkap di useEffect atas
       } else {
-        await loginWeb();
+        // Di browser biasa — coba popup dulu
+        try {
+          await signInWithPopup(auth, googleProvider);
+        } catch (err) {
+          if (
+            err.code === 'auth/popup-blocked' ||
+            err.code === 'auth/popup-closed-by-user' ||
+            err.code === 'auth/cancelled-popup-request'
+          ) {
+            await signInWithRedirect(auth, googleProvider);
+          } else {
+            throw err;
+          }
+        }
       }
     } catch (err) {
       handleAuthError(err);
@@ -57,40 +80,21 @@ export function AuthProvider({ children }) {
     }
   };
 
-  const loginWeb = async () => {
-    try {
-      await signInWithPopup(auth, googleProvider);
-    } catch (err) {
-      if (
-        err?.code === 'auth/popup-blocked' ||
-        err?.code === 'auth/popup-closed-by-user'
-      ) {
-        await signInWithRedirect(auth, googleProvider);
-      } else {
-        throw err;
-      }
-    }
-  };
-
-  const loginNative = async () => {
-    await signInWithRedirect(auth, googleProvider);
-  };
-
   const handleAuthError = (err) => {
     const messages = {
       'auth/account-exists-with-different-credential': 'Akun sudah terdaftar dengan metode login lain.',
       'auth/network-request-failed': 'Koneksi bermasalah. Periksa internet kamu.',
       'auth/too-many-requests': 'Terlalu banyak percobaan. Tunggu sebentar.',
       'auth/user-disabled': 'Akun ini dinonaktifkan.',
+      'auth/unauthorized-domain': 'Domain tidak diizinkan. Hubungi pengembang.',
       'auth/cancelled-popup-request': null,
       'auth/popup-closed-by-user': null,
     };
 
-    const msg = messages[err?.code];
+    const msg = messages[err.code];
     if (msg === null) return;
-
-    setAuthError(msg || 'Login gagal. Coba lagi.');
-    console.error('Auth error:', err?.code, err?.message);
+    console.error('Auth error:', err.code, err.message);
+    setAuthError(msg || `Login gagal (${err.code}). Coba lagi.`);
   };
 
   const logout = async () => {
@@ -104,17 +108,14 @@ export function AuthProvider({ children }) {
   const clearError = () => setAuthError(null);
 
   return (
-    <AuthContext.Provider
-      value={{
-        user,
-        authLoading,
-        authError,
-        loginWithGoogle,
-        logout,
-        clearError,
-        isNative,
-      }}
-    >
+    <AuthContext.Provider value={{
+      user,
+      authLoading,
+      authError,
+      loginWithGoogle,
+      logout,
+      clearError,
+    }}>
       {children}
     </AuthContext.Provider>
   );
