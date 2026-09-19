@@ -2,7 +2,6 @@ import { initializeApp } from 'firebase/app';
 import { getAuth, GoogleAuthProvider } from 'firebase/auth';
 import { getFirestore } from 'firebase/firestore';
 
-// Ganti dengan config Firebase project kamu
 const firebaseConfig = {
   apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
   authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
@@ -11,7 +10,22 @@ const firebaseConfig = {
   messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID,
   appId: import.meta.env.VITE_FIREBASE_APP_ID,
 };
-console.log('Firebase config:', firebaseConfig);
+
+// Debug: cek apakah env terbaca
+console.log('[Firebase] projectId:', firebaseConfig.projectId || 'KOSONG - env tidak terbaca!');
+
+// Validasi sebelum init
+const missingKeys = Object.entries(firebaseConfig)
+  .filter(([, v]) => !v)
+  .map(([k]) => k);
+
+if (missingKeys.length > 0) {
+  throw new Error(
+    '[Firebase] Config tidak lengkap. Key yang kosong: ' + missingKeys.join(', ') +
+    '\nPastikan file .env sudah ada dan berisi nilai yang benar.'
+  );
+}
+
 const app = initializeApp(firebaseConfig);
 
 export const auth = getAuth(app);
