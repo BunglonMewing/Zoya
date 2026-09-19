@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "631040213542",
+    "project_id": "zoyaai12",
+    "storage_bucket": "zoyaai12.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:631040213542:android:7539ca7e0bd4dc41bedce7",
+        "android_client_info": {
+          "package_name": "com.zoya.circledev"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDQlnvBBZmcVEpN6gaTC-qkIFlVqNyq8NA"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

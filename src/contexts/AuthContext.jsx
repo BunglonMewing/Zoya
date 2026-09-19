@@ -2,20 +2,17 @@ import { createContext, useContext, useEffect, useState } from 'react';
 import {
   onAuthStateChanged,
   signInWithPopup,
-  signInWithRedirect,
-  getRedirectResult,
+  signInWithCredential,
+  GoogleAuthProvider,
   signOut,
 } from 'firebase/auth';
 import { auth, googleProvider } from '../lib/firebase.js';
 
 const AuthContext = createContext(null);
 
-// Deteksi apakah berjalan di dalam WebView Capacitor / Android
-const isCapacitor = () =>
+const isNative = () =>
   typeof window !== 'undefined' &&
-  (window.Capacitor?.isNativePlatform?.() ||
-    window.location.protocol === 'capacitor:' ||
-    window.location.hostname === 'localhost' && navigator.userAgent.includes('wv'));
+  window.location.protocol === 'capacitor:';
 
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(undefined);
@@ -29,49 +26,15 @@ export function AuthProvider({ children }) {
     return unsub;
   }, []);
 
-  useEffect(() => {
-    // Tangkap hasil redirect login
-    getRedirectResult(auth)
-      .then(result => {
-        if (result?.user) {
-          setUser(result.user);
-          setAuthError(null);
-        }
-      })
-      .catch(err => {
-        if (
-          err.code !== 'auth/no-auth-event' &&
-          err.code !== 'auth/null-user'
-        ) {
-          console.error('Redirect result error:', err.code);
-        }
-      });
-  }, []);
-
   const loginWithGoogle = async () => {
     setAuthError(null);
     setAuthLoading(true);
 
     try {
-      if (isCapacitor()) {
-        // Di Android WebView — langsung pakai redirect
-        await signInWithRedirect(auth, googleProvider);
-        // Halaman akan reload, hasil ditangkap di useEffect atas
+      if (isNative()) {
+        await loginNative();
       } else {
-        // Di browser biasa — coba popup dulu
-        try {
-          await signInWithPopup(auth, googleProvider);
-        } catch (err) {
-          if (
-            err.code === 'auth/popup-blocked' ||
-            err.code === 'auth/popup-closed-by-user' ||
-            err.code === 'auth/cancelled-popup-request'
-          ) {
-            await signInWithRedirect(auth, googleProvider);
-          } else {
-            throw err;
-          }
-        }
+        await signInWithPopup(auth, googleProvider);
       }
     } catch (err) {
       handleAuthError(err);
@@ -80,13 +43,38 @@ export function AuthProvider({ children }) {
     }
   };
 
+  const loginNative = async () => {
+    try {
+      const { FirebaseAuthentication } = await import(
+        '@capawesome-team/capacitor-firebase-authentication'
+      );
+
+      // Buka Google Sign-In native di Android (pakai Chrome Custom Tab)
+      const result = await FirebaseAuthentication.signInWithGoogle();
+
+      // Buat credential Firebase dari token yang didapat
+      const credential = GoogleAuthProvider.credential(
+        result.credential?.idToken
+      );
+
+      // Sign in ke Firebase Auth
+      await signInWithCredential(auth, credential);
+    } catch (err) {
+      if (err.message?.includes('cancelled') || err.message?.includes('cancel')) {
+        // User cancel — abaikan
+        return;
+      }
+      throw err;
+    }
+  };
+
   const handleAuthError = (err) => {
     const messages = {
-      'auth/account-exists-with-different-credential': 'Akun sudah terdaftar dengan metode login lain.',
+      'auth/account-exists-with-different-credential': 'Akun sudah terdaftar dengan metode lain.',
       'auth/network-request-failed': 'Koneksi bermasalah. Periksa internet kamu.',
       'auth/too-many-requests': 'Terlalu banyak percobaan. Tunggu sebentar.',
       'auth/user-disabled': 'Akun ini dinonaktifkan.',
-      'auth/unauthorized-domain': 'Domain tidak diizinkan. Hubungi pengembang.',
+      'auth/unauthorized-domain': 'Domain tidak diizinkan di Firebase Console.',
       'auth/cancelled-popup-request': null,
       'auth/popup-closed-by-user': null,
     };
@@ -94,11 +82,17 @@ export function AuthProvider({ children }) {
     const msg = messages[err.code];
     if (msg === null) return;
     console.error('Auth error:', err.code, err.message);
-    setAuthError(msg || `Login gagal (${err.code}). Coba lagi.`);
+    setAuthError(msg || `Login gagal (${err.code}).`);
   };
 
   const logout = async () => {
     try {
+      if (isNative()) {
+        const { FirebaseAuthentication } = await import(
+          '@capawesome-team/capacitor-firebase-authentication'
+        );
+        await FirebaseAuthentication.signOut();
+      }
       await signOut(auth);
     } catch (err) {
       console.error('Logout error:', err);
