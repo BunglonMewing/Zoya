@@ -6,7 +6,7 @@ import InputArea from './components/InputArea.jsx';
 import ArtifactPanel from './components/ArtifactPanel.jsx';
 import MemoryModal from './components/MemoryModal.jsx';
 import AboutPage from './components/AboutPage.jsx';
-import LoginPage from './components/LoginPage.jsx';
+import LoginBanner from './components/LoginBanner.jsx';
 import { useStore } from './hooks/useStore.js';
 import { useToast } from './hooks/useToast.js';
 import { useAuth } from './contexts/AuthContext.jsx';
@@ -26,7 +26,7 @@ const SUGGESTIONS = [
 
 export default function App() {
   const state = useStore();
-  const { chats, activeChat, memories, artifactOpen, artifact } = state;
+  const { chats, activeChat, artifactOpen, artifact } = state;
   const { toasts, toast } = useToast();
   const { user } = useAuth();
   const [loading, setLoading] = useState(false);
@@ -34,10 +34,12 @@ export default function App() {
   const [aboutOpen, setAboutOpen] = useState(false);
   const chatEndRef = useRef(null);
 
+  // Sync Firebase hanya kalau sudah login
   useEffect(() => {
     if (user) {
       store.connectUser(user.uid);
     } else if (user === null) {
+      // Belum login — tetap pakai localStorage, tidak disconnect
       store.disconnectUser();
     }
   }, [user]);
@@ -135,7 +137,7 @@ export default function App() {
       toast.success('Info media berhasil diambil!');
     } catch (err) {
       updateMessage(chatId, loadMsgId, {
-        content: `Gagal mengambil media dari URL tersebut.\n\n**Error:** ${err.message}\n\nCoba URL dari YouTube, TikTok, Instagram, Twitter, dll.`,
+        content: `Gagal mengambil media dari URL tersebut.\n\n**Error:** ${err.message}`,
         loading: false,
       });
       toast.error(err.message);
@@ -152,7 +154,7 @@ export default function App() {
     }
   };
 
-  // Loading auth
+  // Masih loading auth state — tampilkan spinner sebentar
   if (user === undefined) {
     return (
       <div style={{
@@ -168,9 +170,7 @@ export default function App() {
     );
   }
 
-  // Belum login
-  if (!user) return <LoginPage />;
-
+  // Sudah login atau belum — langsung tampilkan app
   return (
     <div className="app">
       <Sidebar
@@ -179,6 +179,7 @@ export default function App() {
       />
 
       <div className="main">
+        {/* Topbar */}
         <div className="topbar">
           <button className="icon-btn" onClick={toggleSidebar} title="Toggle sidebar">
             <Menu size={20} />
@@ -191,6 +192,10 @@ export default function App() {
           )}
         </div>
 
+        {/* Banner login — hanya tampil kalau belum login */}
+        {!user && <LoginBanner />}
+
+        {/* Chat area */}
         <div className="chat-area">
           {activeMessages.length === 0 && (
             <div className="empty-state">
