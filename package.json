@@ -13,7 +13,6 @@
     "@capacitor/android": "^8.5.2",
     "@capacitor/cli": "^8.5.2",
     "@capacitor/core": "^8.5.2",
-    "@capawesome-team/capacitor-firebase-authentication": "^6.3.0",
     "firebase": "^11.10.0",
     "lucide-react": "^1.46.0",
     "react": "^19.2.8",
