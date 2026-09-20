@@ -38,6 +38,10 @@ jobs:
 
       - name: Install dependencies
         run: npm ci
+        
+      - name: Decode google-services.json
+        run: |
+          echo "${{ secrets.GOOGLE_SERVICES_JSON }}" | base64 -d > android/app/google-services.json
 
       - name: Build Vite app
         env:
