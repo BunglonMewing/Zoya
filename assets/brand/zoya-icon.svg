@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 108 108" fill="none">
+<defs>
+    <linearGradient id="zoya-bg" x1="8" y1="2" x2="100" y2="106" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#2b56bc"/>
+      <stop offset="1" stop-color="#143b9f"/>
+    </linearGradient>
+  </defs><rect width="108" height="108" rx="24" fill="url(#zoya-bg)"/>
+<g>
+    <path d="M69.5 33 38.5 61" fill="none" stroke="#ffffff" stroke-width="10" stroke-linecap="round"/>
+    <rect x="31" y="25" width="46" height="10" rx="5" fill="#ffffff"/>
+    <rect x="31" y="59" width="46" height="10" rx="5" fill="#ffffff"/>
+    <rect x="38" y="77" width="32" height="5" rx="2.5" fill="#feb572"/>
+  </g>
+</svg>

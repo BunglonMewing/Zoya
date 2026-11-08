@@ -1,96 +1,94 @@
-import { useState, useRef, useEffect } from 'react';
-import { Send, Download, Brain, Paperclip } from 'lucide-react';
-import { isValidUrl, detectPlatform } from '../api.js';
+import { useEffect, useRef, useState } from 'react';
+import { ArrowUp, Download } from 'lucide-react';
+import { detectPlatform, isValidUrl } from '../api.js';
 
 export default function InputArea({ onSend, onDownload, loading, hasChat }) {
   const [text, setText] = useState('');
-  const [dlMode, setDlMode] = useState(false);
+  const [downloadMode, setDownloadMode] = useState(false);
   const textareaRef = useRef(null);
 
-  // Auto-resize textarea
   useEffect(() => {
-    const ta = textareaRef.current;
-    if (!ta) return;
-    ta.style.height = 'auto';
-    ta.style.height = Math.min(ta.scrollHeight, 200) + 'px';
+    const area = textareaRef.current;
+    if (!area) return;
+    area.style.height = 'auto';
+    area.style.height = `${Math.min(area.scrollHeight, 180)}px`;
   }, [text]);
 
-  // Detect URL in text and auto-toggle dl mode
-  useEffect(() => {
-    if (isValidUrl(text.trim()) && detectPlatform(text.trim()) !== 'unknown') {
-      setDlMode(true);
-    }
-  }, [text]);
+  const handleChange = (event) => {
+    const value = event.target.value;
+    setText(value);
+    const trimmed = value.trim();
+    if (isValidUrl(trimmed) && detectPlatform(trimmed) !== 'unknown') setDownloadMode(true);
+  };
 
-  const handleSend = () => {
-    const val = text.trim();
-    if (!val || loading) return;
+  const send = () => {
+    const value = text.trim();
+    if (!value || loading) return;
 
-    if (dlMode && isValidUrl(val)) {
-      onDownload(val);
-    } else {
-      onSend(val);
-    }
+    if (downloadMode && isValidUrl(value)) onDownload(value);
+    else onSend(value);
+
     setText('');
-    setDlMode(false);
+    setDownloadMode(false);
   };
 
-  const handleKey = (e) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault();
-      handleSend();
+  const onKeyDown = (event) => {
+    if (event.key === 'Enter' && !event.shiftKey) {
+      event.preventDefault();
+      send();
     }
   };
 
-  const placeholder = dlMode
-    ? 'Tempel link YouTube, TikTok, Instagram, dll...'
+  const placeholder = downloadMode
+    ? 'Tempel tautan YouTube, TikTok, Instagram…'
     : hasChat
-    ? 'Tanya apa saja...'
-    : 'Halo! Apa yang bisa aku bantu?';
+      ? 'Tanya apa saja…'
+      : 'Halo, ada yang bisa Zoya bantu?';
 
-  const canSend = text.trim() && !loading;
+  const canSend = Boolean(text.trim()) && !loading;
 
   return (
-    <div className="input-area">
-      <div className="input-container">
-        <textarea
-          ref={textareaRef}
-          className="input-textarea"
-          placeholder={placeholder}
-          value={text}
-          onChange={e => setText(e.target.value)}
-          onKeyDown={handleKey}
-          rows={1}
-        />
-        <div className="input-toolbar">
-          {/* Downloader toggle */}
-          <button
-            className={`input-tool-btn dl-input-toggle ${dlMode ? 'active' : ''}`}
-            onClick={() => setDlMode(v => !v)}
-            title="Mode Downloader"
-          >
-            <Download size={14} />
-            Downloader
-          </button>
-
-          <div className="input-spacer" />
-
-          {/* Send */}
-          <button
-            className="send-btn"
-            onClick={handleSend}
-            disabled={!canSend}
-            title="Kirim (Enter)"
-          >
-            <Send size={16} />
-          </button>
+    <div className="composer">
+      <div className="composer__inner">
+        <div className="composer__field">
+          <label className="sr-only" htmlFor="composer-input">Pesan untuk Zoya</label>
+          <textarea
+            id="composer-input"
+            ref={textareaRef}
+            rows={1}
+            placeholder={placeholder}
+            value={text}
+            onChange={handleChange}
+            onKeyDown={onKeyDown}
+          />
+          <div className="composer__toolbar">
+            <button
+              type="button"
+              className={`mode-toggle ${downloadMode ? 'is-active' : ''}`.trim()}
+              onClick={() => setDownloadMode(value => !value)}
+              aria-pressed={downloadMode}
+            >
+              <Download size={15} />
+              Mode unduhan
+            </button>
+            <div className="spacer" />
+            <button
+              type="button"
+              className="icon-button icon-button--filled"
+              onClick={send}
+              disabled={!canSend}
+              aria-label="Kirim pesan"
+              title="Kirim (Enter)"
+            >
+              <ArrowUp size={20} />
+            </button>
+          </div>
         </div>
-      </div>
-      <div className="input-hint">
-        {dlMode
-          ? 'Mode downloader aktif — tempel link lalu tekan Enter'
-          : 'Tekan Enter untuk kirim, Shift+Enter untuk baris baru'
-        }
+        <p className="composer__hint">
+          {downloadMode
+            ? 'Tautan akan dibuka di halaman Unduhan — pilih format di sana.'
+            : 'Enter untuk kirim · Shift+Enter untuk baris baru'}
+        </p>
       </div>
     </div>
   );
