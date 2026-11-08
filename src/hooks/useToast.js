@@ -1,22 +1,46 @@
-import { useState, useCallback } from 'react';
+import { useEffect, useState } from 'react';
 
-let toastId = 0;
+// Snackbars live outside React state so any module can raise one.
+let seq = 0;
+let items = [];
+const listeners = new Set();
 
-export function useToast() {
-  const [toasts, setToasts] = useState([]);
+const emit = () => listeners.forEach(l => l(items));
 
-  const addToast = useCallback((message, type = 'info', duration = 3000) => {
-    const id = ++toastId;
-    setToasts(t => [...t, { id, message, type }]);
-    setTimeout(() => setToasts(t => t.filter(x => x.id !== id)), duration);
-    return id;
-  }, []);
+export function dismiss(id) {
+  items = items.filter(item => item.id !== id);
+  emit();
+}
 
-  const toast = {
-    success: (msg, dur) => addToast(msg, 'success', dur),
-    error: (msg, dur) => addToast(msg, 'error', dur || 4000),
-    info: (msg, dur) => addToast(msg, 'info', dur),
+function push(message, options = {}) {
+  const id = ++seq;
+  const item = {
+    id,
+    message,
+    type: options.type || 'info',
+    actionLabel: options.actionLabel || null,
+    onAction: options.onAction || null,
+    duration: options.duration ?? (options.type === 'error' ? 6000 : 4000),
   };
+  items = [...items.slice(-2), item];
+  emit();
+  setTimeout(() => dismiss(id), item.duration);
+  return id;
+}
 
-  return { toasts, toast };
+export const toast = {
+  show: (message, options) => push(message, options),
+  info: (message, options) => push(message, { ...options, type: 'info' }),
+  success: (message, options) => push(message, { ...options, type: 'success' }),
+  error: (message, options) => push(message, { ...options, type: 'error' }),
+  dismiss,
+};
+
+export function useToasts() {
+  const [list, setList] = useState(items);
+  useEffect(() => {
+    listeners.add(setList);
+    return () => { listeners.delete(setList); };
+  }, []);
+  return list;
 }

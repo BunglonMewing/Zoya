@@ -1,4 +1,4 @@
-// Simple global store — state lokal + sync ke Firestore saat user login
+// Chat + memory store. Local first, mirrored to Firestore when signed in.
 
 import {
   saveChat as fsaveChat,
@@ -11,12 +11,30 @@ import {
 
 const generateId = () => Math.random().toString(36).slice(2) + Date.now().toString(36);
 
+// ─── Theme ───────────────────────────────────────────────────────────────────
+
+const lightQuery = window.matchMedia('(prefers-color-scheme: light)');
+export const THEME_MODES = ['system', 'light', 'dark'];
+
+function resolveTheme(mode) {
+  if (mode === 'light' || mode === 'dark') return mode;
+  return lightQuery.matches ? 'light' : 'dark';
+}
+
+function applyTheme(mode) {
+  document.documentElement.setAttribute('data-theme', resolveTheme(mode));
+}
+
 class Store {
   constructor() {
     this._listeners = [];
     this._state = this._load();
     this._uid = null;
     this._unsubs = [];
+    applyTheme(this._state.theme);
+    lightQuery.addEventListener?.('change', () => {
+      if (this._state.theme === 'system') applyTheme('system');
+    });
   }
 
   _load() {
@@ -28,11 +46,7 @@ class Store {
           chats: parsed.chats || [],
           activeChat: null,
           memories: parsed.memories || [],
-          theme: parsed.theme || 'dark',
-          sidebarOpen: window.innerWidth > 768,
-          artifactOpen: false,
-          artifact: null,
-          loading: false,
+          theme: THEME_MODES.includes(parsed.theme) ? parsed.theme : 'system',
           sessionId: parsed.sessionId || generateId(),
         };
       }
@@ -41,11 +55,7 @@ class Store {
       chats: [],
       activeChat: null,
       memories: [],
-      theme: 'dark',
-      sidebarOpen: window.innerWidth > 768,
-      artifactOpen: false,
-      artifact: null,
-      loading: false,
+      theme: 'system',
       sessionId: generateId(),
     };
   }
@@ -70,24 +80,16 @@ class Store {
     return () => { this._listeners = this._listeners.filter(l => l !== listener); };
   }
 
-  // ─── Firebase sync ──────────────────────────────────────────────────────────
+  // ─── Firebase sync ────────────────────────────────────────────────────────
 
-  /**
-   * Panggil saat user login — subscribe realtime dari Firestore
-   * dan merge dengan data lokal (hindari duplikat)
-   */
   connectUser(uid) {
     this._uid = uid;
     this._unsubs.forEach(u => u());
     this._unsubs = [];
 
-    // Subscribe chats
     const unsubChats = subscribeChats(uid, remoteChats => {
       this.setState(s => {
-        // Merge: remote wins untuk chat yang ada di keduanya
-        const localOnlyChats = s.chats.filter(
-          lc => !remoteChats.find(rc => rc.id === lc.id)
-        );
+        const localOnlyChats = s.chats.filter(lc => !remoteChats.find(rc => rc.id === lc.id));
         const merged = [...remoteChats, ...localOnlyChats].sort(
           (a, b) => (b.createdAt || 0) - (a.createdAt || 0)
         );
@@ -95,12 +97,9 @@ class Store {
       });
     });
 
-    // Subscribe memories
     const unsubMems = subscribeMemories(uid, remoteMems => {
       this.setState(s => {
-        const localOnly = s.memories.filter(
-          lm => !remoteMems.find(rm => rm.id === lm.id)
-        );
+        const localOnly = s.memories.filter(lm => !remoteMems.find(rm => rm.id === lm.id));
         const merged = [...remoteMems, ...localOnly].sort(
           (a, b) => (b.createdAt || 0) - (a.createdAt || 0)
         );
@@ -115,7 +114,6 @@ class Store {
     this._unsubs.forEach(u => u());
     this._unsubs = [];
     this._uid = null;
-    // Reset ke state bersih saat logout
     this.setState(s => ({
       ...s,
       chats: [],
@@ -130,9 +128,9 @@ class Store {
 
 export const store = new Store();
 
-// ─── Chat actions ─────────────────────────────────────────────────────────────
+// ─── Chat actions ────────────────────────────────────────────────────────────
 
-export function createChat(title = 'Chat Baru') {
+export function createChat(title = 'Chat baru') {
   const id = generateId();
   const chat = { id, title, messages: [], createdAt: Date.now() };
   store.setState(s => ({ ...s, chats: [chat, ...s.chats], activeChat: id }));
@@ -186,7 +184,6 @@ export function updateMessage(chatId, msgId, updates) {
     ),
   }));
 
-  // Sync chat terbaru ke Firestore setelah update selesai
   const uid = store.getUid();
   if (uid) {
     const chat = store.getState().chats.find(c => c.id === chatId);
@@ -194,7 +191,13 @@ export function updateMessage(chatId, msgId, updates) {
   }
 }
 
-// ─── Memory actions ───────────────────────────────────────────────────────────
+export function clearChats() {
+  const uid = store.getUid();
+  store.getState().chats.forEach(c => { if (uid) fdeleteChat(uid, c.id).catch(() => {}); });
+  store.setState(s => ({ ...s, chats: [], activeChat: null }));
+}
+
+// ─── Memory actions ──────────────────────────────────────────────────────────
 
 export function addMemory(text) {
   const id = generateId();
@@ -211,24 +214,10 @@ export function deleteMemory(id) {
   store.setState(s => ({ ...s, memories: s.memories.filter(m => m.id !== id) }));
 }
 
-// ─── Misc ─────────────────────────────────────────────────────────────────────
+// ─── Settings ────────────────────────────────────────────────────────────────
 
-export function setArtifact(artifact) {
-  store.setState(s => ({ ...s, artifact, artifactOpen: !!artifact }));
+export function setTheme(mode) {
+  if (!THEME_MODES.includes(mode)) return;
+  applyTheme(mode);
+  store.setState(s => ({ ...s, theme: mode }));
 }
-
-export function toggleTheme() {
-  store.setState(s => {
-    const theme = s.theme === 'dark' ? 'light' : 'dark';
-    document.documentElement.setAttribute('data-theme', theme);
-    return { ...s, theme };
-  });
-}
-
-export function toggleSidebar() {
-  store.setState(s => ({ ...s, sidebarOpen: !s.sidebarOpen }));
-}
-
-// Apply saved theme on load
-const { theme } = store.getState();
-document.documentElement.setAttribute('data-theme', theme);

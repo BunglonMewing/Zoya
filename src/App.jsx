@@ -1,73 +1,55 @@
-import { useState, useEffect, useRef } from 'react';
-import { Menu, MoreVertical } from 'lucide-react';
-import Sidebar from './components/Sidebar.jsx';
-import Message from './components/Message.jsx';
-import InputArea from './components/InputArea.jsx';
-import ArtifactPanel from './components/ArtifactPanel.jsx';
+import { useCallback, useEffect, useState } from 'react';
+import { Menu, Plus } from 'lucide-react';
+import { NavigationBar, NavigationDrawer, NavigationRail } from './components/Navigation.jsx';
+import ChatPage from './components/ChatPage.jsx';
+import DownloaderPage from './components/DownloaderPage.jsx';
+import LibraryPage from './components/LibraryPage.jsx';
+import SettingsPage from './components/SettingsPage.jsx';
 import MemoryModal from './components/MemoryModal.jsx';
-import AboutPage from './components/AboutPage.jsx';
-import LoginBanner from './components/LoginBanner.jsx';
+import AboutSheet from './components/AboutSheet.jsx';
+import SnackbarHost from './components/SnackbarHost.jsx';
+import ZoyaMark from './components/ZoyaMark.jsx';
 import { useStore } from './hooks/useStore.js';
-import { useToast } from './hooks/useToast.js';
+import { toast, useToasts } from './hooks/useToast.js';
 import { useAuth } from './contexts/AuthContext.jsx';
-import {
-  createChat, addMessage, updateMessage,
-  setArtifact, toggleSidebar, store, addMemory,
-} from './store.js';
-import { sendMessage, scrapeMedia, isValidUrl, detectPlatform } from './api.js';
+import { addMemory, addMessage, createChat, store, updateMessage } from './store.js';
+import { sendMessage } from './api.js';
 import { extractAutoMemory } from './lib/firestoreHelpers.js';
 
-const SUGGESTIONS = [
-  { icon: '🌐', text: 'Jelaskan cara kerja internet' },
-  { icon: '💡', text: 'Bantu aku brainstorming ide bisnis' },
-  { icon: '📥', text: 'Download video dari YouTube' },
-  { icon: '💬', text: 'Terjemahkan ke bahasa Inggris' },
-];
+const TITLES = {
+  chat: 'Chat',
+  downloader: 'Unduhan',
+  library: 'Riwayat',
+  settings: 'Setelan',
+};
 
 export default function App() {
-  const state = useStore();
-  const { chats, activeChat, artifactOpen, artifact } = state;
-  const { toasts, toast } = useToast();
+  const { chats, activeChat } = useStore();
   const { user } = useAuth();
-  const [loading, setLoading] = useState(false);
+  const toasts = useToasts();
+
+  const [page, setPage] = useState('chat');
+  const [drawerOpen, setDrawerOpen] = useState(false);
   const [memoryOpen, setMemoryOpen] = useState(false);
   const [aboutOpen, setAboutOpen] = useState(false);
-  const chatEndRef = useRef(null);
+  const [downloadRequest, setDownloadRequest] = useState(null);
+  const [loading, setLoading] = useState(false);
 
-  // Sync Firebase hanya kalau sudah login
   useEffect(() => {
-    if (user) {
-      store.connectUser(user.uid);
-    } else if (user === null) {
-      // Belum login — tetap pakai localStorage, tidak disconnect
-      store.disconnectUser();
-    }
+    if (user) store.connectUser(user.uid);
+    else if (user === null) store.disconnectUser();
   }, [user]);
 
-  const activeMessages = (() => {
-    const chat = chats.find(c => c.id === activeChat);
-    return chat?.messages || [];
-  })();
+  const activeChatData = chats.find(chat => chat.id === activeChat) || null;
+  const messages = activeChatData?.messages || [];
+  const chatTitle = activeChatData?.title || 'Zoya';
 
-  const activeTitle = (() => {
-    const chat = chats.find(c => c.id === activeChat);
-    return chat?.title || 'Zoya AI';
-  })();
+  const ensureChat = () => activeChat || createChat();
 
-  useEffect(() => {
-    chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [activeMessages.length, loading]);
-
-  const ensureChat = () => {
-    if (!activeChat) return createChat();
-    return activeChat;
-  };
-
-  const tryAutoMemory = (userMessage) => {
-    const facts = extractAutoMemory(userMessage);
-    facts.forEach(fact => {
-      const exists = store.getState().memories.some(m =>
-        m.text.toLowerCase().includes(fact.split(':')[0].toLowerCase())
+  const rememberFacts = (message) => {
+    extractAutoMemory(message).forEach((fact) => {
+      const exists = store.getState().memories.some(memory =>
+        memory.text.toLowerCase().includes(fact.split(':')[0].toLowerCase())
       );
       if (!exists) {
         addMemory(fact);
@@ -76,186 +58,145 @@ export default function App() {
     });
   };
 
+  const openDownloader = useCallback((url = '') => {
+    setDownloadRequest({ url, id: Date.now() });
+    setPage('downloader');
+    setDrawerOpen(false);
+  }, []);
+
   const handleSend = async (text) => {
     const chatId = ensureChat();
-    const { sessionId, memories: mems } = store.getState();
+    const { sessionId, memories } = store.getState();
 
     addMessage(chatId, { role: 'user', content: text });
-    const loadMsgId = addMessage(chatId, { role: 'assistant', content: '', loading: true });
+    const loadingId = addMessage(chatId, { role: 'assistant', content: '', loading: true });
     setLoading(true);
 
-    tryAutoMemory(text);
+    rememberFacts(text);
 
     try {
-      const result = await sendMessage(text, sessionId, mems);
-      updateMessage(chatId, loadMsgId, { content: result.answer, loading: false });
+      const result = await sendMessage(text, sessionId, memories);
+      updateMessage(chatId, loadingId, { content: result.answer, loading: false });
 
-      const lowerText = text.toLowerCase();
+      const lowered = text.toLowerCase();
       const urlMatch = text.match(/https?:\/\/[^\s]+/);
-      if (urlMatch && (lowerText.includes('download') || lowerText.includes('unduh') || lowerText.includes('ambil'))) {
-        setTimeout(() => handleDownload(urlMatch[0]), 800);
+      if (urlMatch && /download|unduh|ambil/.test(lowered)) {
+        setTimeout(() => openDownloader(urlMatch[0]), 600);
       }
     } catch (err) {
-      updateMessage(chatId, loadMsgId, {
-        content: 'Maaf, terjadi kesalahan. Silakan coba lagi.',
+      updateMessage(chatId, loadingId, {
+        content: 'Maaf, terjadi kesalahan saat menghubungi Zoya. Coba lagi sebentar lagi.',
         loading: false,
       });
-      toast.error('Gagal menghubungi AI: ' + err.message);
+      toast.error(`Gagal menghubungi AI: ${err.message}`);
     } finally {
       setLoading(false);
     }
   };
 
-  const handleDownload = async (url) => {
-    if (!isValidUrl(url)) {
-      toast.error('URL tidak valid');
-      return;
-    }
-
-    const chatId = ensureChat();
-    const platform = detectPlatform(url);
-
-    addMessage(chatId, { role: 'user', content: `Download dari: ${url}` });
-    const loadMsgId = addMessage(chatId, { role: 'assistant', content: '', loading: true });
-    setLoading(true);
-
-    try {
-      toast.info('Mengambil info media...');
-      const data = await scrapeMedia(url);
-
-      updateMessage(chatId, loadMsgId, {
-        content: `Media dari **${data.platform || platform}** berhasil diambil!\n\n**${data.title || 'Media'}**\n\nLihat panel artefak untuk download.`,
-        loading: false,
-      });
-
-      setArtifact({
-        type: 'download',
-        title: data.title || 'Download Media',
-        data: { ...data, originalUrl: url },
-      });
-
-      toast.success('Info media berhasil diambil!');
-    } catch (err) {
-      updateMessage(chatId, loadMsgId, {
-        content: `Gagal mengambil media dari URL tersebut.\n\n**Error:** ${err.message}`,
-        loading: false,
-      });
-      toast.error(err.message);
-    } finally {
-      setLoading(false);
-    }
+  const newChat = () => {
+    createChat();
+    setPage('chat');
+    setDrawerOpen(false);
   };
 
-  const handleSuggestion = (text) => {
-    if (text.toLowerCase().includes('youtube') || text.toLowerCase().includes('download')) {
-      handleDownload('https://www.youtube.com/watch?v=dQw4w9WgXcQ');
-    } else {
-      handleSend(text);
-    }
-  };
-
-  // Masih loading auth state — tampilkan spinner sebentar
   if (user === undefined) {
     return (
-      <div style={{
-        height: '100vh', display: 'flex', alignItems: 'center',
-        justifyContent: 'center', background: 'var(--bg-secondary)',
-      }}>
-        <div className="typing-indicator">
-          <div className="typing-dot" />
-          <div className="typing-dot" />
-          <div className="typing-dot" />
+      <div className="boot">
+        <div className="boot__inner">
+          <ZoyaMark size={72} />
+          <div className="typing" aria-label="Memuat Zoya">
+            <span /><span /><span />
+          </div>
+          <span className="boot__label">MENYIAPKAN ZOYA</span>
         </div>
       </div>
     );
   }
 
-  // Sudah login atau belum — langsung tampilkan app
   return (
-    <div className="app">
-      <Sidebar
+    <div className="app-shell">
+      <div className="app-shell__rail">
+        <NavigationRail page={page} onNavigate={setPage} />
+      </div>
+
+      <div className="app-shell__body">
+        <header className="top-app-bar">
+          {page === 'chat' && (
+            <button
+              className="icon-button chat-pane-toggle"
+              onClick={() => setDrawerOpen(true)}
+              aria-label="Buka daftar percakapan"
+            >
+              <Menu size={22} />
+            </button>
+          )}
+
+          <div className="top-app-bar__identity">
+            {page === 'chat' ? (
+              <>
+                <ZoyaMark size={30} />
+                <div style={{ minWidth: 0 }}>
+                  <h1 className="top-app-bar__title">{chatTitle}</h1>
+                  <div className="top-app-bar__subtitle">AI dan pengunduh media</div>
+                </div>
+              </>
+            ) : (
+              <h1 className="top-app-bar__title">{TITLES[page]}</h1>
+            )}
+          </div>
+
+          <div className="top-app-bar__actions">
+            {page === 'chat' && (
+              <button className="icon-button" onClick={newChat} aria-label="Percakapan baru" title="Percakapan baru">
+                <Plus size={22} />
+              </button>
+            )}
+          </div>
+        </header>
+
+        <main className="app-shell__main">
+          {page === 'chat' && (
+            <ChatPage
+              messages={messages}
+              loading={loading}
+              onSend={handleSend}
+              onDownload={openDownloader}
+              onNavigate={setPage}
+            />
+          )}
+
+          {page === 'downloader' && (
+            <DownloaderPage
+              request={downloadRequest}
+              onRequestHandled={() => setDownloadRequest(null)}
+            />
+          )}
+
+          {page === 'library' && <LibraryPage />}
+          {page === 'settings' && (
+            <SettingsPage
+              onMemoryOpen={() => setMemoryOpen(true)}
+              onAboutOpen={() => setAboutOpen(true)}
+            />
+          )}
+        </main>
+
+        <NavigationBar page={page} onNavigate={setPage} />
+      </div>
+
+      <NavigationDrawer
+        open={drawerOpen}
+        onClose={() => setDrawerOpen(false)}
+        onNavigate={setPage}
         onMemoryOpen={() => setMemoryOpen(true)}
         onAboutOpen={() => setAboutOpen(true)}
       />
 
-      <div className="main">
-        {/* Topbar */}
-        <div className="topbar">
-          <button className="icon-btn" onClick={toggleSidebar} title="Toggle sidebar">
-            <Menu size={20} />
-          </button>
-          <div className="topbar-title">{activeTitle}</div>
-          {activeMessages.length > 0 && (
-            <button className="icon-btn" onClick={() => toast.info('Fitur ekspor segera hadir!')} title="Opsi lainnya">
-              <MoreVertical size={20} />
-            </button>
-          )}
-        </div>
-
-        {/* Banner login — hanya tampil kalau belum login */}
-        {!user && <LoginBanner />}
-
-        {/* Chat area */}
-        <div className="chat-area">
-          {activeMessages.length === 0 && (
-            <div className="empty-state">
-              <div className="empty-logo">Z</div>
-              <div className="empty-title">Halo! Aku Zoya AI</div>
-              <div className="empty-subtitle">
-                Aku bisa menjawab pertanyaan, membantu pekerjaan, dan juga download video/audio dari berbagai platform.
-              </div>
-              <div className="suggestion-chips">
-                {SUGGESTIONS.map((s, i) => (
-                  <button key={i} className="suggestion-chip" onClick={() => handleSuggestion(s.text)}>
-                    <span style={{ marginRight: 6 }}>{s.icon}</span>
-                    {s.text}
-                  </button>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {activeMessages.map((msg, i) => (
-            <Message
-              key={msg.id}
-              message={msg}
-              onRetry={!msg.loading && msg.role === 'assistant' && i === activeMessages.length - 1
-                ? () => {
-                    const userMsg = activeMessages[i - 1];
-                    if (userMsg) handleSend(userMsg.content);
-                  }
-                : null
-              }
-            />
-          ))}
-          <div ref={chatEndRef} />
-        </div>
-
-        <InputArea
-          onSend={handleSend}
-          onDownload={handleDownload}
-          loading={loading}
-          hasChat={activeMessages.length > 0}
-        />
-      </div>
-
-      {artifactOpen && artifact && (
-        <ArtifactPanel artifact={artifact} toast={toast} />
-      )}
-
       {memoryOpen && <MemoryModal onClose={() => setMemoryOpen(false)} />}
-      {aboutOpen && <AboutPage onClose={() => setAboutOpen(false)} />}
+      {aboutOpen && <AboutSheet onClose={() => setAboutOpen(false)} />}
 
-      <div className="toast-container">
-        {toasts.map(t => (
-          <div key={t.id} className={`toast ${t.type}`}>
-            {t.type === 'success' && '✓'}
-            {t.type === 'error' && '✕'}
-            {t.type === 'info' && 'ℹ'}
-            {t.message}
-          </div>
-        ))}
-      </div>
+      <SnackbarHost toasts={toasts} />
     </div>
   );
 }
